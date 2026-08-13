@@ -1,0 +1,23 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Secrets
+.env
+.streamlit/secrets.toml
+
+# IDE
+.vscode/
+
+# Generated/local images
+images/
+query_tmp.jpg
+results_collage.jpg
+
+# Generated vector/index files
+index/
+embeddings/
+
+# Logs
+*.log
