@@ -10,7 +10,7 @@ ROOT = os.path.dirname(__file__)
 IMAGES_DIR = os.path.join(ROOT, 'images')
 INDEX_DIR = os.path.join(ROOT, 'index')
 
-st.title('Saree Visual Search — Chat + Image (Demo)')
+st.title('AI-Powered Saree Similarity Search')
 
 emb_path = os.path.join(INDEX_DIR, 'embeddings.npy')
 meta_path = os.path.join(INDEX_DIR, 'metas.json')
