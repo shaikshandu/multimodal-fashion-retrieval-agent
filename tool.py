@@ -7,6 +7,9 @@ import numpy as np
 from PIL import Image
 from transformers import AutoProcessor, AutoModel
 
+ROOT = Path(__file__).parent
+IMAGES_DIR = ROOT / "images"
+
 _INDEX_LOADED = False
 _EMBEDDINGS = None
 _METAS = None
@@ -18,7 +21,7 @@ def _ensure_index(index_dir: str = None):
     global _INDEX_LOADED, _EMBEDDINGS, _METAS
     if _INDEX_LOADED:
         return
-    base = Path(index_dir or Path(__file__).parent / "index")
+    base = Path(index_dir or ROOT / "index")
     emb_path = base / "embeddings.npy"
     metas_path = base / "metas.json"
     if not emb_path.exists() or not metas_path.exists():
@@ -35,6 +38,37 @@ def _ensure_model(model_name: str = "openai/clip-vit-base-patch32"):
         return
     _PROCESSOR = AutoProcessor.from_pretrained(model_name)
     _MODEL = AutoModel.from_pretrained(model_name)
+
+
+def _resolve_path(p: str) -> str:
+    """Resolve a stored meta path to a real file on this machine.
+
+    metas.json may contain:
+      - a path that's already relative to images/ (preferred, portable)
+      - a stale absolute path baked in on a different machine at build time
+
+    We try, in order: the path as-is, the path joined onto IMAGES_DIR, and
+    finally images/<basename(p)> as a last-resort fallback.
+    """
+    if not p:
+        return p
+
+    # 1. Path works as given (either already correct, or a valid absolute path)
+    if os.path.exists(p):
+        return p
+
+    # 2. Treat it as relative to the images/ directory
+    candidate = IMAGES_DIR / p
+    if candidate.exists():
+        return str(candidate)
+
+    # 3. Fall back to matching just the filename inside images/
+    candidate = IMAGES_DIR / os.path.basename(p)
+    if candidate.exists():
+        return str(candidate)
+
+    # Give up — caller will treat this as a missing file
+    return p
 
 
 def _image_embedding_from_path(p: str):
@@ -83,7 +117,7 @@ def _combine_scores(emb_dists: np.ndarray, hist_dists: np.ndarray, alpha: float 
 
 
 def make_collage(paths: List[str], thumb_size: int = 256, cols: int = 3) -> Image.Image:
-    imgs = [Image.open(p).convert("RGB") for p in paths]
+    imgs = [Image.open(_resolve_path(p)).convert("RGB") for p in paths]
     rows = (len(imgs) + cols - 1) // cols
     w = cols * thumb_size
     h = rows * thumb_size
@@ -101,25 +135,26 @@ def search_image(image_path: str, top_k: int = 5, re_rank: bool = True) -> List[
     """Return a list of results with improved scoring and metadata.
 
     Each result: {path, name, sku, emb_dist, hist_dist, combined, similarity}
-    
+
     Self-match removal: If the query image exists in the index, it will be filtered out.
     """
     _ensure_index()
     q_emb = _image_embedding_from_path(image_path)
     dists = np.linalg.norm(_EMBEDDINGS - q_emb.reshape(1, -1), axis=1)
-    
+
     self_match_indices = set(np.where(dists < 0.01)[0])
-    
     all_idxs = np.argsort(dists)
     idxs = [i for i in all_idxs if i not in self_match_indices][: max(top_k * 3, top_k)]
-    
+
     candidates = []
     hist_q = _color_histogram(image_path)
     hist_dists = []
     emb_dists = []
+
     for i in idxs:
         meta = _METAS[i]
-        p = meta.get("path") or meta.get("url")
+        raw_p = meta.get("path") or meta.get("url")
+        p = _resolve_path(raw_p)
         if not p or not os.path.exists(p):
             hist_d = 1.0
         else:
@@ -138,10 +173,11 @@ def search_image(image_path: str, top_k: int = 5, re_rank: bool = True) -> List[
     for score, (i, meta), emb_d, hist_d in zip(combined, candidates, emb_dists, hist_dists):
         sim = 1.0 - float(score)
         sim = max(0.0, min(1.0, sim))
+        resolved_path = _resolve_path(meta.get("path") or meta.get("url"))
         results.append(
             {
                 "index": int(i),
-                "path": meta.get("path") or meta.get("url"),
+                "path": resolved_path,
                 "name": meta.get("name") or meta.get("title") or "",
                 "sku": meta.get("sku") or meta.get("id") or "",
                 "emb_dist": emb_d,
