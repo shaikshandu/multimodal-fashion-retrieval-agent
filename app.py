@@ -10,10 +10,11 @@ ROOT = os.path.dirname(__file__)
 IMAGES_DIR = os.path.join(ROOT, 'images')
 INDEX_DIR = os.path.join(ROOT, 'index')
 
-
 st.title('Saree Visual Search — Chat + Image (Demo)')
+
 emb_path = os.path.join(INDEX_DIR, 'embeddings.npy')
 meta_path = os.path.join(INDEX_DIR, 'metas.json')
+
 if not (os.path.exists(emb_path) and os.path.exists(meta_path)):
     st.warning('Index not found. You can build a demo index here (generates synthetic images).')
     if st.button('Build index now (demo, may take a minute)'):
@@ -31,6 +32,15 @@ import tool
 import agent
 
 
+def _safe_open(path):
+    """Open an image robustly, resolving stale/relative paths via tool.py's
+    resolver before giving up."""
+    if not path:
+        raise FileNotFoundError('No path provided')
+    resolved = tool._resolve_path(path)
+    return Image.open(resolved)
+
+
 def render_results(results):
     st.write('Top matches:')
     cols = st.columns(3)
@@ -40,9 +50,9 @@ def render_results(results):
         paths.append(p)
         with cols[i % 3]:
             try:
-                st.image(Image.open(p), width=220)
+                st.image(_safe_open(p), width=220)
             except Exception:
-                st.write('Image not found')
+                st.write(f'Image not found: {p}')
             sim = res.get('similarity', 0.0)
             emb_d = res.get('emb_dist', 0.0)
             hist_d = res.get('hist_dist', 0.0)
@@ -52,6 +62,7 @@ def render_results(results):
 
 
 uploaded = st.file_uploader('Upload a query image', type=['jpg', 'jpeg', 'png', 'webp'])
+
 if uploaded is not None:
     data = uploaded.read()
     qpath = os.path.join(ROOT, 'query_tmp.jpg')
@@ -63,6 +74,7 @@ if uploaded is not None:
         try:
             results = tool.search_image(qpath, top_k=6, re_rank=True)
             paths = render_results(results)
+
             try:
                 collage = tool.make_collage(paths, thumb_size=256, cols=3)
                 buf = io.BytesIO()
@@ -70,6 +82,7 @@ if uploaded is not None:
                 st.download_button('Download collage', data=buf.getvalue(), file_name='results_collage.jpg')
             except Exception:
                 pass
+
         except Exception as e:
             st.error(f"Search failed: {e}")
 
@@ -78,28 +91,31 @@ if uploaded is not None:
             out = agent.search_similar_sarees(qpath, top_k=6)
             st.markdown('**Assistant:**')
             st.write(out.get('explanation'))
+
             cols = st.columns(3)
             for i, r in enumerate(out.get('results', [])[:6]):
                 with cols[i % 3]:
                     try:
-                        st.image(r.get('path'), width=200)
+                        st.image(_safe_open(r.get('path')), width=200)
                     except Exception:
-                        st.write('Image')
+                        st.write('Image not found')
                     sim = r.get('similarity', 0.0)
                     price = r.get('price', '')
                     st.markdown(f"**{sim*100:.1f}%**")
                     if price:
                         st.write(price)
+
             if out.get('collage_path'):
                 try:
-                    st.image(out.get('collage_path'), caption='Collage', width=600)
+                    st.image(tool._resolve_path(out.get('collage_path')), caption='Collage', width=600)
                 except Exception:
                     pass
+
         except Exception as e:
             st.error(f'Agent failed: {e}')
 
     st.write('Raw results:')
     st.dataframe([
-        {"path": r.get('path'), "similarity": f"{r.get('similarity')*100:.1f}%", "emb": r.get('emb_dist'), "hist": r.get('hist_dist')} 
+        {"path": r.get('path'), "similarity": f"{r.get('similarity')*100:.1f}%", "emb": r.get('emb_dist'), "hist": r.get('hist_dist')}
         for r in results
     ])
