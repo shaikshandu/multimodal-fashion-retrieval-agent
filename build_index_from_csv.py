@@ -14,12 +14,13 @@ ROOT = os.path.dirname(__file__)
 CSV_PATH = os.path.join(os.path.dirname(ROOT), 'byrappa_tejas_31july.csv')
 IMAGES_DIR = os.path.join(ROOT, 'images')
 INDEX_DIR = os.path.join(ROOT, 'index')
+
 os.makedirs(IMAGES_DIR, exist_ok=True)
 os.makedirs(INDEX_DIR, exist_ok=True)
 
 
 def download_image(url, target_path, timeout=10, max_retries=2):
-    for attempt in range(max_retries+1):
+    for attempt in range(max_retries + 1):
         try:
             resp = requests.get(url, timeout=timeout)
             resp.raise_for_status()
@@ -50,6 +51,7 @@ def build_from_csv(sample_count=300):
             sku = row.get('SKU') or f'row_{i}'
             if not url:
                 continue
+
             fname = f"{sku}.jpg"
             target = os.path.join(IMAGES_DIR, fname)
             if os.path.exists(target):
@@ -58,6 +60,7 @@ def build_from_csv(sample_count=300):
                 ok = download_image(url, target)
             if not ok:
                 continue
+
             try:
                 img = Image.open(target).convert('RGB')
                 inputs = processor(images=img, return_tensors='pt').to(device)
@@ -74,7 +77,10 @@ def build_from_csv(sample_count=300):
             except Exception:
                 continue
 
-            metas.append({'sku': sku, 'name': row.get('Name'), 'url': url, 'path': target})
+            # Store the path relative to images/ (just the filename here)
+            # instead of an absolute path baked in at build time, so the
+            # index still works after cloning the repo elsewhere.
+            metas.append({'sku': sku, 'name': row.get('Name'), 'url': url, 'path': fname})
             embeddings.append(vec.astype('float32'))
             downloaded += 1
 
